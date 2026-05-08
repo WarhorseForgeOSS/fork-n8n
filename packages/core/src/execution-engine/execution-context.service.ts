@@ -24,26 +24,20 @@ export class ExecutionContextService {
 	) {}
 
 	async decryptExecutionContext(context: IExecutionContext): Promise<PlaintextExecutionContext> {
-		let credentials = undefined;
-		if (context.credentials) {
-			const decrypted = await this.cipher.decryptV2(context.credentials);
-			credentials = toCredentialContext(decrypted);
+		if (!context.credentials) {
+			const { credentials: _omit, ...rest } = context;
+			return rest;
 		}
-		return {
-			...context,
-			credentials,
-		};
+		const decrypted = await this.cipher.decryptV2(context.credentials);
+		return { ...context, credentials: toCredentialContext(decrypted) };
 	}
 
 	async encryptExecutionContext(context: PlaintextExecutionContext): Promise<IExecutionContext> {
-		let credentials = undefined;
-		if (context.credentials) {
-			credentials = await this.cipher.encryptV2(context.credentials);
+		if (!context.credentials) {
+			const { credentials: _omit, ...rest } = context;
+			return rest;
 		}
-		return {
-			...context,
-			credentials,
-		};
+		return { ...context, credentials: await this.cipher.encryptV2(context.credentials) };
 	}
 
 	mergeExecutionContexts(
@@ -73,6 +67,31 @@ export class ExecutionContextService {
 			...startItem.node.parameters,
 		};
 
+		// decrypt the context to work with plaintext data
+		let context = await this.decryptExecutionContext(contextToAugment);
+
+		// Run global hooks!
+		for (const globalHook of this.executionContextHookRegistry.getGlobalHooks()) {
+			// call the hook to let it modify the context and/or the main input data
+			const result = await globalHook.execute({
+				triggerNode: startItem.node,
+				workflow,
+				triggerItems: currentTriggerItems,
+				context,
+				options: {},
+			});
+
+			if (result.triggerItems !== undefined) {
+				// Update trigger items in case they were modified by the hook
+				currentTriggerItems = result.triggerItems;
+			}
+
+			if (result.contextUpdate) {
+				// Merge any returned context fields into the execution context
+				context = this.mergeExecutionContexts(context, result.contextUpdate);
+			}
+		}
+
 		const startNodeParametersResult = toExecutionContextEstablishmentHookParameter(
 			contextEstablishmentHookParameters,
 		);
@@ -83,9 +102,9 @@ export class ExecutionContextService {
 					`Failed to parse execution context establishment hook parameters for node ${startItem.node.name}: ${startNodeParametersResult.error.message}`,
 				);
 			}
-			// no execution establishment hooks found, we just return the original context
+			// no node specific execution establishment hooks found, we return early
 			return {
-				context: contextToAugment,
+				context: await this.encryptExecutionContext(context),
 				triggerItems: currentTriggerItems,
 			};
 		}
@@ -94,9 +113,6 @@ export class ExecutionContextService {
 		// this can be the settings for the different hooks to be executed
 		// for example to extract the bearer token from the start node data.
 		const startNodeParameters = startNodeParametersResult.data;
-
-		// decrypt the context to work with plaintext data
-		let context = await this.decryptExecutionContext(contextToAugment);
 
 		// based on startNodeParameters, startNodeType and currentTriggerItems we can now
 		// iterate over the different hooks to extract specific data for the runtime context
