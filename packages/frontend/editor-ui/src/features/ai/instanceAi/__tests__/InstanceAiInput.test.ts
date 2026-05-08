@@ -14,6 +14,7 @@ const storeState = reactive({
 	currentThreadId: 'thread-1',
 	researchMode: false,
 	isSendingMessage: false,
+	isAwaitingConfirmation: false,
 	toggleResearchMode,
 });
 
@@ -36,6 +37,7 @@ describe('InstanceAiInput', () => {
 		storeState.currentThreadId = 'thread-1';
 		storeState.researchMode = false;
 		storeState.isSendingMessage = false;
+		storeState.isAwaitingConfirmation = false;
 	});
 
 	it('uses the shared suggestions fixture with the expected top-level contract', () => {

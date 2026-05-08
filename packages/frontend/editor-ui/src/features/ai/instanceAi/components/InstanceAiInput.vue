@@ -11,10 +11,26 @@ import type { InstanceAiAttachment } from '@n8n/api-types';
 import type { InstanceAiEmptyStateSuggestion } from '../emptyStateSuggestions';
 import { useInstanceAiPromptSuggestionsTelemetry } from '../instanceAiPromptSuggestions.telemetry';
 
-const props = defineProps<{
-	isStreaming: boolean;
-	suggestions?: readonly InstanceAiEmptyStateSuggestion[];
-}>();
+type AmendContext = { agentId: string; role: string } | null;
+
+const props = withDefaults(
+	defineProps<{
+		isStreaming: boolean;
+		suggestions?: readonly InstanceAiEmptyStateSuggestion[];
+		isSendingMessage?: boolean;
+		isAwaitingConfirmation?: boolean;
+		currentThreadId?: string;
+		amendContext?: AmendContext;
+		contextualSuggestion?: string | null;
+	}>(),
+	{
+		isSendingMessage: undefined,
+		isAwaitingConfirmation: undefined,
+		currentThreadId: undefined,
+		amendContext: undefined,
+		contextualSuggestion: undefined,
+	},
+);
 
 const emit = defineEmits<{
 	submit: [message: string, attachments?: InstanceAiAttachment[]];
@@ -33,12 +49,26 @@ defineExpose({
 	focus: () => chatInputRef.value?.focus(),
 });
 
-const isBusy = computed(() => props.isStreaming || store.isSendingMessage);
+const isSendingMessage = computed(() => props.isSendingMessage ?? store.isSendingMessage);
+const isAwaitingConfirmation = computed(
+	() => props.isAwaitingConfirmation ?? store.isAwaitingConfirmation,
+);
+const currentThreadId = computed(() => props.currentThreadId ?? store.currentThreadId);
+const amendContext = computed(() =>
+	props.amendContext === undefined ? store.amendContext : props.amendContext,
+);
+const contextualSuggestion = computed(() =>
+	props.contextualSuggestion === undefined
+		? store.contextualSuggestion
+		: props.contextualSuggestion,
+);
+
+const isBusy = computed(() => props.isStreaming || isSendingMessage.value);
 const hasNonWhitespaceDraftText = computed(() => inputText.value.trim().length > 0);
 const isInputVisuallyEmpty = computed(() => inputText.value.length === 0);
 const hasAttachments = computed(() => attachedFiles.value.length > 0);
 const isComposerDirty = computed(() => hasNonWhitespaceDraftText.value || hasAttachments.value);
-const isGatedBySetup = computed(() => store.isAwaitingConfirmation);
+const isGatedBySetup = computed(() => isAwaitingConfirmation.value);
 const canSubmit = computed(() => isComposerDirty.value && !isBusy.value && !isGatedBySetup.value);
 const canShowSuggestions = computed(
 	() =>
@@ -48,7 +78,7 @@ const canShowSuggestions = computed(
 		!isGatedBySetup.value,
 );
 const visibleSuggestionThreadId = computed(() =>
-	canShowSuggestions.value ? store.currentThreadId : null,
+	canShowSuggestions.value ? currentThreadId.value : null,
 );
 
 const placeholder = computed(() => {
@@ -58,13 +88,13 @@ const placeholder = computed(() => {
 	if (previewPromptKey.value && isInputVisuallyEmpty.value) {
 		return i18n.baseText(previewPromptKey.value);
 	}
-	if (store.amendContext) {
+	if (amendContext.value) {
 		return i18n.baseText('instanceAi.input.amendPlaceholder', {
-			interpolate: { role: store.amendContext.role },
+			interpolate: { role: amendContext.value.role },
 		});
 	}
-	if (store.contextualSuggestion) {
-		return store.contextualSuggestion;
+	if (contextualSuggestion.value) {
+		return contextualSuggestion.value;
 	}
 	return i18n.baseText('instanceAi.input.placeholder');
 });
@@ -132,8 +162,8 @@ function handleStop() {
 }
 
 function handleTabAutocomplete() {
-	if (!inputText.value && store.contextualSuggestion) {
-		inputText.value = store.contextualSuggestion;
+	if (!inputText.value && contextualSuggestion.value) {
+		inputText.value = contextualSuggestion.value;
 	}
 }
 
@@ -150,7 +180,7 @@ function handleFileRemove(file: File) {
 
 function getTelemetryContext() {
 	return {
-		threadId: store.currentThreadId,
+		threadId: currentThreadId.value,
 		researchMode: store.researchMode,
 	};
 }

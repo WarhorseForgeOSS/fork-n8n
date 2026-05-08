@@ -12,7 +12,6 @@ import { INSTANCE_AI_EMPTY_STATE_SUGGESTIONS } from './emptyStateSuggestions';
 import { useCreditWarningBanner } from './composables/useCreditWarningBanner';
 import InstanceAiInput from './components/InstanceAiInput.vue';
 import InstanceAiEmptyState from './components/InstanceAiEmptyState.vue';
-import InstanceAiStatusBar from './components/InstanceAiStatusBar.vue';
 import InstanceAiViewHeader from './components/InstanceAiViewHeader.vue';
 import CreditWarningBanner from '@/features/ai/assistant/components/Agent/CreditWarningBanner.vue';
 
@@ -69,7 +68,6 @@ function handleStop() {
 			<div :class="$style.emptyLayout">
 				<InstanceAiEmptyState />
 				<div :class="$style.centeredInput">
-					<InstanceAiStatusBar />
 					<CreditWarningBanner
 						v-if="creditBanner.visible.value"
 						:credits-remaining="store.creditsRemaining"
