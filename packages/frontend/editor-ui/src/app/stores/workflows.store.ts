@@ -55,6 +55,7 @@ import {
 } from '@/app/stores/workflowDocument.store';
 import { getPairedItemsMapping } from '@/app/utils/pairedItemUtils';
 import { useNodeTypesStore } from './nodeTypes.store';
+import { useRouter } from 'vue-router';
 
 export const useWorkflowsStore = defineStore(STORES.WORKFLOWS, () => {
 	const uiStore = useUIStore();
@@ -78,11 +79,14 @@ export const useWorkflowsStore = defineStore(STORES.WORKFLOWS, () => {
 	const chatMessages = ref<string[]>([]);
 	const chatPartialExecutionDestinationNode = ref<string | null>(null);
 	const selectedTriggerNodeName = ref<string>();
+	const router = useRouter();
 
 	/**
 	 * @deprecated use useWorkflowId() in Vue components/composables instead.
 	 */
-	const workflowId = ref('');
+	const workflowId = computed(() => {
+		return (router?.currentRoute.value.params.workflowId as string | undefined) ?? '';
+	});
 
 	// A workflow is new if it hasn't been saved to the backend yet.
 	// TODO: move to workflowDocumentStore after `workflow` ref is removed from this store.
@@ -258,8 +262,8 @@ export const useWorkflowsStore = defineStore(STORES.WORKFLOWS, () => {
 		);
 	}
 
-	function setWorkflowId(id?: string) {
-		workflowId.value = id || '';
+	function setWorkflowId(_id?: string) {
+		// Noop
 	}
 
 	function resetWorkflow() {
