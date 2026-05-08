@@ -81,6 +81,9 @@ describe('InstanceAiView', () => {
 		store.loadHistoricalMessages.mockResolvedValue('applied');
 		store.connectSSE.mockResolvedValue(undefined);
 		store.closeSSE.mockReturnValue(undefined);
+		store.consumePendingInitialMessage.mockReturnValue(null);
+		store.sendMessage.mockResolvedValue(undefined);
+		store.threads = [];
 		settingsStore.isLocalGatewayDisabled = true;
 		settingsStore.refreshModuleSettings.mockResolvedValue(undefined);
 		pushStore.pushConnect.mockReturnValue(undefined);
@@ -134,6 +137,38 @@ describe('InstanceAiView', () => {
 		expect(store.loadHistoricalMessages).not.toHaveBeenCalled();
 		expect(store.loadThreadStatus).not.toHaveBeenCalled();
 		expect(store.connectSSE).not.toHaveBeenCalled();
+	});
+
+	it('auto-submits a pending initial message when mounted on the base route', async () => {
+		// Simulates clicking "Set up evals" on the canvas: an external trigger
+		// stages a message in the store and navigates to /instance-ai. The view
+		// should consume the message and submit it through the same code path
+		// as a manually-typed message.
+		store.consumePendingInitialMessage.mockReturnValue('Set up evals for workflow wf-1');
+
+		renderView();
+
+		await vi.waitFor(() => {
+			expect(store.consumePendingInitialMessage).toHaveBeenCalled();
+		});
+		expect(store.sendMessage).toHaveBeenCalledWith(
+			'Set up evals for workflow wf-1',
+			undefined,
+			expect.anything(),
+		);
+	});
+
+	it('does not auto-submit a pending message when mounted on a thread route', async () => {
+		// Defensive: a stale pending message must not be sent into an existing
+		// thread the user navigated into.
+		store.consumePendingInitialMessage.mockReturnValue('stale message');
+
+		renderView({ props: { threadId: 'thread-1' } });
+
+		await vi.waitFor(() => {
+			expect(store.loadThreads).toHaveBeenCalled();
+		});
+		expect(store.sendMessage).not.toHaveBeenCalled();
 	});
 
 	it('reconnects on same-thread re-entry (thread route, SSE disconnected)', async () => {

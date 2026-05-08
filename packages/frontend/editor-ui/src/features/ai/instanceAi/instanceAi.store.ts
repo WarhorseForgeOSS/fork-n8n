@@ -139,6 +139,10 @@ export const useInstanceAiStore = defineStore('instanceAi', () => {
 	const latestTasks = ref<TaskList | null>(null);
 	const hydratingThreadId = ref<string | null>(null);
 	const pendingMessageCount = ref(0);
+	// A message staged by an external trigger (e.g. canvas eval setup CTA) that
+	// should be auto-submitted on the next InstanceAiView mount, going through
+	// the same code path as a user-typed message in the empty state.
+	const pendingInitialMessage = ref<string | null>(null);
 	const debugEvents = ref<Array<{ timestamp: string; event: InstanceAiEvent }>>([]);
 	const debugMode = ref(false);
 	const researchMode = ref(localStorage.getItem('instanceAi.researchMode') === 'true');
@@ -585,6 +589,16 @@ export const useInstanceAiStore = defineStore('instanceAi', () => {
 
 		connectSSE(newThreadId);
 		return newThreadId;
+	}
+
+	function setPendingInitialMessage(message: string): void {
+		pendingInitialMessage.value = message;
+	}
+
+	function consumePendingInitialMessage(): string | null {
+		const value = pendingInitialMessage.value;
+		pendingInitialMessage.value = null;
+		return value;
 	}
 
 	async function deleteThread(
@@ -1043,8 +1057,11 @@ export const useInstanceAiStore = defineStore('instanceAi', () => {
 		isLowCredits,
 		pendingConfirmations,
 		isAwaitingConfirmation,
+		pendingInitialMessage,
 		// Actions
 		newThread,
+		setPendingInitialMessage,
+		consumePendingInitialMessage,
 		clearCurrentThread,
 		deleteThread,
 		renameThread,
