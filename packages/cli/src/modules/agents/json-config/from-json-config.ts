@@ -7,7 +7,7 @@ import type {
 	ToolDescriptor,
 	JSONObject,
 } from '@n8n/agents';
-import { Agent, Memory, Tool, wrapToolForApproval } from '@n8n/agents';
+import { Agent, createEmbeddingModel, Memory, Tool, wrapToolForApproval } from '@n8n/agents';
 import type { AgentSkill } from '@n8n/api-types';
 import { z } from 'zod';
 
@@ -70,6 +70,8 @@ const N8N_MEMORY_DISABLED_INSTRUCTION = [
 	'If the user asks you to remember, recall, or persist information across sessions, explain that Memory is not enabled yet and can be enabled in the Memory panel.',
 ].join(' ');
 
+const DEFAULT_EPISODIC_MEMORY_EMBEDDER = 'openai/text-embedding-3-small';
+
 export interface BuildFromJsonOptions {
 	/** Executes custom tool handlers inside isolates. */
 	toolExecutor: ToolExecutor;
@@ -130,6 +132,7 @@ export async function buildFromJson(
 			agent,
 			config.memory,
 			options.memoryFactory,
+			options.credentialProvider,
 			config.description ?? config.instructions,
 		);
 	}
@@ -311,6 +314,7 @@ async function applyMemoryFromConfig(
 	agent: AgentBuilder,
 	memoryConfig: AgentJsonMemoryConfig,
 	memoryFactory: MemoryFactory,
+	credentialProvider: CredentialProvider,
 	agentDescription: string,
 ) {
 	const memory = new Memory();
@@ -328,6 +332,14 @@ async function applyMemoryFromConfig(
 
 	if (memoryConfig.semanticRecall) {
 		memory.semanticRecall(memoryConfig.semanticRecall);
+	}
+
+	if (memoryConfig.episodicMemory?.enabled === true) {
+		const episodicMemoryConfig = await resolveEpisodicMemoryConfig(
+			memoryConfig.episodicMemory,
+			credentialProvider,
+		);
+		memory.episodicMemory(episodicMemoryConfig);
 	}
 
 	memory.profiles({ enabled: true, agentDescription });
@@ -368,6 +380,32 @@ async function applyMemoryFromConfig(
 	agent.memory(memory);
 }
 
+async function resolveEpisodicMemoryConfig(
+	config: Extract<NonNullable<AgentJsonMemoryConfig['episodicMemory']>, { enabled: true }>,
+	credentialProvider: CredentialProvider,
+) {
+	const embeddingModel = config.embedder ?? DEFAULT_EPISODIC_MEMORY_EMBEDDER;
+	const providerPrefix = getProviderPrefix(embeddingModel);
+	const raw = await credentialProvider.resolve(config.credential);
+	const mapped = mapCredentialForProvider(providerPrefix, raw);
+
+	return {
+		enabled: true,
+		...(config.topK !== undefined && { topK: config.topK }),
+		...(config.autoInject !== undefined && { autoInject: config.autoInject }),
+		...(config.autoInjectTopK !== undefined && { autoInjectTopK: config.autoInjectTopK }),
+		...(config.halfLifeDays !== undefined && { halfLifeDays: config.halfLifeDays }),
+		...(config.maxEntriesPerTurn !== undefined && { maxEntriesPerTurn: config.maxEntriesPerTurn }),
+		...(config.maxEntryLength !== undefined && { maxEntryLength: config.maxEntryLength }),
+		...(config.dedupeSimilarityThreshold !== undefined && {
+			dedupeSimilarityThreshold: config.dedupeSimilarityThreshold,
+		}),
+		embedder: createEmbeddingModel(embeddingModel, mapped),
+		embeddingModel,
+		...(config.prompts !== undefined && { prompts: config.prompts }),
+	};
+}
+
 async function resolveModelConfig(
 	config: AgentJsonConfig,
 	credentialProvider: CredentialProvider,
@@ -379,4 +417,9 @@ async function resolveModelConfig(
 	const raw = await credentialProvider.resolve(config.credential);
 	const mapped = mapCredentialForProvider(providerPrefix, raw);
 	return { id: config.model, ...mapped } as ModelConfig;
+}
+
+function getProviderPrefix(modelId: string): string {
+	const slashIdx = modelId.indexOf('/');
+	return slashIdx !== -1 ? modelId.slice(0, slashIdx) : '';
 }

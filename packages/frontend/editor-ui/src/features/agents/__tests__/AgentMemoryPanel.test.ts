@@ -1,9 +1,13 @@
 /* eslint-disable import-x/no-extraneous-dependencies -- test-only Vue mounting */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 
 import AgentMemoryPanel from '../components/AgentMemoryPanel.vue';
 import type { AgentJsonConfig } from '../types';
+
+const { openModalWithDataMock } = vi.hoisted(() => ({
+	openModalWithDataMock: vi.fn(),
+}));
 
 vi.mock('@n8n/i18n', () => ({
 	useI18n: () => ({
@@ -12,8 +16,15 @@ vi.mock('@n8n/i18n', () => ({
 				'agents.builder.memory.title': 'Memory',
 				'agents.builder.memory.description':
 					'Keeps session context and learned behavior available.',
+				'agents.builder.memory.episodicMemory.label': 'Case memory',
+				'agents.builder.memory.episodicMemory.hint':
+					'Remember source-backed details from previous cases so this agent can recognize similar issues across sessions.',
 			})[key] ?? key,
 	}),
+}));
+
+vi.mock('@/app/stores/ui.store', () => ({
+	useUIStore: () => ({ openModalWithData: openModalWithDataMock }),
 }));
 
 const globalStubs = {
@@ -37,18 +48,39 @@ function makeConfig(overrides: Partial<AgentJsonConfig> = {}): AgentJsonConfig {
 }
 
 describe('AgentMemoryPanel', () => {
-	it('renders the memory toggle', () => {
+	beforeEach(() => {
+		openModalWithDataMock.mockClear();
+	});
+
+	it('renders memory and case memory toggles', () => {
 		const wrapper = mount(AgentMemoryPanel, {
 			props: { config: makeConfig() },
 			global: { stubs: globalStubs },
 		});
 
 		expect(wrapper.find('[data-testid="agent-memory-toggle"]').exists()).toBe(true);
-		expect(wrapper.text()).toContain('Memory');
-		expect(wrapper.text()).toContain('Keeps session context and learned behavior available.');
+		expect(wrapper.find('[data-testid="agent-case-memory-toggle"]').exists()).toBe(true);
 	});
 
-	it('enables base memory', async () => {
+	it('opens the credential modal without updating config when case memory is toggled on', async () => {
+		const wrapper = mount(AgentMemoryPanel, {
+			props: { config: makeConfig() },
+			global: { stubs: globalStubs },
+		});
+
+		await wrapper.find('[data-testid="agent-case-memory-toggle"]').trigger('click');
+
+		expect(openModalWithDataMock).toHaveBeenCalledWith({
+			name: 'agentCaseMemoryCredentialModal',
+			data: expect.objectContaining({
+				initialValue: null,
+				onSelect: expect.any(Function),
+			}),
+		});
+		expect(wrapper.emitted('update:config')).toBeUndefined();
+	});
+
+	it('enables base memory without opening credential selection', async () => {
 		const wrapper = mount(AgentMemoryPanel, {
 			props: { config: makeConfig() },
 			global: { stubs: globalStubs },
@@ -56,6 +88,7 @@ describe('AgentMemoryPanel', () => {
 
 		await wrapper.find('[data-testid="agent-memory-toggle"]').trigger('click');
 
+		expect(openModalWithDataMock).not.toHaveBeenCalled();
 		expect(wrapper.emitted('update:config')).toEqual([
 			[
 				{
@@ -69,12 +102,41 @@ describe('AgentMemoryPanel', () => {
 		]);
 	});
 
-	it('preserves existing memory config when enabling memory', async () => {
+	it('emits the memory config after a credential is selected', async () => {
+		const wrapper = mount(AgentMemoryPanel, {
+			props: { config: makeConfig() },
+			global: { stubs: globalStubs },
+		});
+
+		await wrapper.find('[data-testid="agent-case-memory-toggle"]').trigger('click');
+		const payload = openModalWithDataMock.mock.calls[0][0] as {
+			data: { onSelect: (credentialId: string) => void };
+		};
+		payload.data.onSelect('credential-1');
+
+		expect(wrapper.emitted('update:config')).toEqual([
+			[
+				{
+					memory: {
+						enabled: true,
+						storage: 'n8n',
+						lastMessages: 10,
+						episodicMemory: {
+							enabled: true,
+							credential: 'credential-1',
+						},
+					},
+				},
+			],
+		]);
+	});
+
+	it('preserves existing memory config when enabling case memory', async () => {
 		const wrapper = mount(AgentMemoryPanel, {
 			props: {
 				config: makeConfig({
 					memory: {
-						enabled: false,
+						enabled: true,
 						storage: 'n8n',
 						lastMessages: 4,
 						semanticRecall: {
@@ -87,7 +149,11 @@ describe('AgentMemoryPanel', () => {
 			global: { stubs: globalStubs },
 		});
 
-		await wrapper.find('[data-testid="agent-memory-toggle"]').trigger('click');
+		await wrapper.find('[data-testid="agent-case-memory-toggle"]').trigger('click');
+		const payload = openModalWithDataMock.mock.calls[0][0] as {
+			data: { onSelect: (credentialId: string) => void };
+		};
+		payload.data.onSelect('credential-2');
 
 		const events = wrapper.emitted('update:config') ?? [];
 		expect(events[0][0]).toEqual({
@@ -98,6 +164,10 @@ describe('AgentMemoryPanel', () => {
 				semanticRecall: {
 					topK: 3,
 					scope: 'resource',
+				},
+				episodicMemory: {
+					enabled: true,
+					credential: 'credential-2',
 				},
 			},
 		});
@@ -111,20 +181,26 @@ describe('AgentMemoryPanel', () => {
 						enabled: true,
 						storage: 'n8n',
 						lastMessages: 10,
+						episodicMemory: {
+							enabled: true,
+							credential: 'credential-1',
+						},
 					},
 				}),
 			},
 			global: { stubs: globalStubs },
 		});
 
-		await wrapper.find('[data-testid="agent-memory-toggle"]').trigger('click');
+		await wrapper.find('[data-testid="agent-case-memory-toggle"]').trigger('click');
 
+		expect(openModalWithDataMock).not.toHaveBeenCalled();
 		const events = wrapper.emitted('update:config') ?? [];
 		expect(events[0][0]).toEqual({
 			memory: {
+				enabled: true,
 				storage: 'n8n',
-				enabled: false,
 				lastMessages: 10,
+				episodicMemory: { enabled: false },
 			},
 		});
 	});
@@ -137,6 +213,9 @@ describe('AgentMemoryPanel', () => {
 
 		expect(
 			wrapper.find('[data-testid="agent-memory-toggle"]').attributes('disabled'),
+		).toBeDefined();
+		expect(
+			wrapper.find('[data-testid="agent-case-memory-toggle"]').attributes('disabled'),
 		).toBeDefined();
 	});
 });
