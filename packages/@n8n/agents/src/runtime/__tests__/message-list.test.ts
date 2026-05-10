@@ -166,11 +166,15 @@ describe('AgentMessageList — forLlm working memory', () => {
 		expect(prompt).not.toContain('Current template');
 	});
 
-	it('renders persona, user, and session memory inside memory_blocks', () => {
+	it('renders persona, user, episodic memory, and session memory inside memory_blocks', () => {
 		const list = new AgentMessageList();
 		list.memoryProfile = {
 			persona: 'This agent specializes in n8n memory work.',
 			user: 'The user prefers concise answers.',
+		};
+		list.episodicMemory = {
+			section: '<memory>\n- The user is testing memory retrieval.\n</memory>',
+			entries: ['The user is testing memory retrieval.'],
 		};
 		list.workingMemory = {
 			template: '# Thread memory',
@@ -201,11 +205,12 @@ describe('AgentMessageList — forLlm working memory', () => {
 				'</user>',
 			].join('\n'),
 		);
+		expect(prompt).toContain('<memory>\n- The user is testing memory retrieval.\n</memory>');
 		expect(prompt).toContain('<session-memory>');
 		expect(prompt).toContain('Current objective: verify prompt sections.');
 		expect(prompt.indexOf('<persona>')).toBeLessThan(prompt.indexOf('<user>'));
-		expect(prompt.indexOf('<user>')).toBeLessThan(prompt.indexOf('<session-memory>'));
-		expect(prompt).not.toContain('<memory>');
+		expect(prompt.indexOf('<user>')).toBeLessThan(prompt.indexOf('<memory>'));
+		expect(prompt.indexOf('<memory>')).toBeLessThan(prompt.indexOf('<session-memory>'));
 	});
 
 	it('keeps recent history messages in LLM context when working memory is empty', () => {
@@ -304,15 +309,23 @@ describe('AgentMessageList — deserialize', () => {
 		expect(newMsg.createdAt.getTime()).toBeGreaterThan(futureTs.getTime());
 	});
 
-	it('preserves injected profile context across serialization', () => {
+	it('preserves injected profile and episodic memory context across serialization', () => {
 		const list = new AgentMessageList();
 		list.memoryProfile = { persona: 'Agent profile.', user: 'Resource profile.' };
+		list.episodicMemory = {
+			section: '<memory>\n- Known entry.\n</memory>',
+			entries: ['Known entry.'],
+		};
 
 		const restored = AgentMessageList.deserialize(list.serialize());
 
 		expect(restored.memoryProfile).toEqual({
 			persona: 'Agent profile.',
 			user: 'Resource profile.',
+		});
+		expect(restored.episodicMemory).toEqual({
+			section: '<memory>\n- Known entry.\n</memory>',
+			entries: ['Known entry.'],
 		});
 	});
 });

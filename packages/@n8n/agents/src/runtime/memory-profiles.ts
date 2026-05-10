@@ -43,7 +43,7 @@ Rules:
 - User profile must exclude active project state, debugging steps, implementation order, branch stack, test flow, next actions, temporary constraints, session objectives, facts about this agent's internals, and facts about a specific feature unless phrased as a stable user preference.
 - If the information would stop being useful after the current task ends, it does not belong in <user>.
 - If the information is about what the agent should do, it belongs in <persona>, not <user>.
-- If the information needs source or provenance, it does not belong in <user>.
+- If the information needs source or provenance, it belongs in source-backed case entries, not <user>.
 - Persona entries must be imperative system-instruction-style directives that cause a concrete future behavior change.
 - Persona must exclude descriptive agent facts, implementation facts, model names, storage/data-model facts, schema facts, current feature details, current implementation details, and session state unless the user phrases them as durable response behavior.
 - Existing profile content is not authoritative. Rewrite profiles to remove entries that violate these rules, even if no new durable information is present.

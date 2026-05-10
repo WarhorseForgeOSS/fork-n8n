@@ -1,4 +1,7 @@
+import type { EmbeddingModel } from 'ai';
+
 import type { AgentDbMessage } from '../../types/sdk/message';
+import { extractAndStoreEpisodicMemory } from '../episodic-memory';
 import { AgentEventBus } from '../event-bus';
 import {
 	DEFAULT_MEMORY_PROFILE_UPDATE_PROMPT,
@@ -8,16 +11,29 @@ import {
 import { InMemoryMemory } from '../memory-store';
 
 jest.mock('ai', () => ({
+	generateObject: jest.fn(),
 	generateText: jest.fn(),
+	embedMany: jest.fn(),
 }));
 
-const { generateText } = jest.requireMock<{
+const { generateObject, generateText, embedMany } = jest.requireMock<{
+	generateObject: jest.Mock;
 	generateText: jest.Mock<Promise<{ text: string }>, [{ prompt?: string; system?: string }]>;
+	embedMany: jest.Mock;
 }>('ai');
 
+const fakeEmbedder = {} as EmbeddingModel;
 const fakeModel = { doGenerate: jest.fn() } as unknown as Parameters<
 	typeof updateMemoryProfilesFromTurn
 >[0]['model'];
+
+function extractedEntry(
+	content: string,
+	evidence: string,
+	source: 'user_assertion' | 'user_accepted_assistant_proposal' = 'user_assertion',
+) {
+	return { content, source, evidence };
+}
 
 function makeUserMessage(text: string, id = 'user-1'): AgentDbMessage {
 	return {
@@ -53,7 +69,7 @@ describe('memory profiles', () => {
 			'durable workflow preferences',
 			'If the information would stop being useful after the current task ends',
 			'belongs in <persona>',
-			'does not belong in <user>',
+			'belongs in source-backed case entries',
 			'Existing profile content is not authoritative',
 			'Persona captures actionable behavioral directives',
 			'imperative system-instruction-style directives',
@@ -87,7 +103,7 @@ describe('memory profiles', () => {
 		generateText.mockResolvedValueOnce({
 			text: JSON.stringify({
 				persona:
-					'When discussing memory architecture, distinguish durable profile state from session objective state.',
+					'When discussing memory architecture, distinguish profile-shaped from episodic-shaped memory.',
 				user: 'The user prefers concise updates.',
 			}),
 		});
@@ -98,7 +114,7 @@ describe('memory profiles', () => {
 				'Remember that I prefer concise updates. For this agent, respond with memory architecture distinctions instead of vague memory language.',
 			),
 			makeAssistantMessage(
-				'Understood. I will distinguish durable profile state from session objective state.',
+				'Understood. I will distinguish profile-shaped memory from episodic-shaped memory.',
 			),
 		];
 		await updateMemoryProfilesFromTurn({
@@ -118,7 +134,7 @@ describe('memory profiles', () => {
 			memory.getMemoryProfile({ scopeKind: 'agent', scopeId: 'agent-1' }),
 		).resolves.toMatchObject({
 			content:
-				'When discussing memory architecture, distinguish durable profile state from session objective state.',
+				'When discussing memory architecture, distinguish profile-shaped from episodic-shaped memory.',
 		});
 		expect(generateText).toHaveBeenCalledTimes(1);
 		expect(generateText.mock.calls[0][0].system).toContain(
@@ -136,7 +152,7 @@ describe('memory profiles', () => {
 		);
 		expect(generateText.mock.calls[0][0].prompt).toContain('<assistant-message>');
 		expect(generateText.mock.calls[0][0].prompt).toContain(
-			'I will distinguish durable profile state from session objective state.',
+			'I will distinguish profile-shaped memory from episodic-shaped memory.',
 		);
 		expect(generateText.mock.calls[0][0].prompt).not.toContain('<accepted-entries>');
 	});
@@ -166,6 +182,7 @@ describe('memory profiles', () => {
 			eventBus: new AgentEventBus(),
 		});
 
+		expect(embedMany).not.toHaveBeenCalled();
 		await expect(
 			memory.getMemoryProfile({ scopeKind: 'agent', scopeId: 'agent-1' }),
 		).resolves.toMatchObject({
@@ -195,6 +212,37 @@ describe('memory profiles', () => {
 		await expect(
 			memory.getMemoryProfile({ scopeKind: 'agent', scopeId: 'agent-1' }),
 		).resolves.toBeNull();
+	});
+
+	it('does not update memory profiles from episodic extraction alone', async () => {
+		generateObject.mockResolvedValueOnce({
+			object: {
+				entries: [
+					extractedEntry(
+						'The user prefers concise updates.',
+						'Remember that I prefer concise updates.',
+					),
+				],
+			},
+		});
+		embedMany.mockResolvedValueOnce({ embeddings: [[1, 0]] });
+
+		const memory = new InMemoryMemory();
+		await extractAndStoreEpisodicMemory({
+			memory,
+			config: { embedder: fakeEmbedder },
+			model: fakeModel,
+			threadId: 'thread-1',
+			persistence: { threadId: 'thread-1', agentId: 'agent-1', resourceId: 'user-1' },
+			messages: [makeUserMessage('Remember that I prefer concise updates.')],
+			eventBus: new AgentEventBus(),
+		});
+
+		await expect(
+			memory.getMemoryProfile({ scopeKind: 'resource', scopeId: 'user-1' }),
+		).resolves.toBeNull();
+		expect(generateObject).toHaveBeenCalledTimes(1);
+		expect(generateText).not.toHaveBeenCalled();
 	});
 
 	it('loads resource profiles shared across agents and persona profiles scoped to one agent', async () => {

@@ -9,4 +9,8 @@ export interface SerializedMessageList {
 		persona?: string | null;
 		user?: string | null;
 	};
+	episodicMemory?: {
+		section: string;
+		entries?: string[];
+	};
 }
