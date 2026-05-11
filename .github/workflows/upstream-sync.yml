@@ -1,0 +1,33 @@
+name: Upstream Sync
+
+# Weekly sync of upstream main branch into this fork.
+# Creates a PR for review if upstream has new commits.
+# Does NOT auto-merge. Production deploys from FORK_PINS.md in warhorse-v3,
+# not from latest fork state.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Mondays at 06:00 UTC
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync upstream
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          upstream_sync_repo: n8n-io/n8n
+          upstream_sync_branch: master
+          target_sync_branch: main
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
